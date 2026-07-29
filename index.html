@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speaking Practice Game - Neon Edition</title>
+    <style>
+        /* Thiết kế nền Synthwave / Neon */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #0b0c10;
+            background-image: 
+                linear-gradient(rgba(11, 12, 16, 0.8), rgba(11, 12, 16, 0.8)),
+                linear-gradient(0deg, transparent 24%, rgba(0, 255, 255, 0.3) 25%, rgba(0, 255, 255, 0.3) 26%, transparent 27%, transparent 74%, rgba(255, 0, 255, 0.3) 75%, rgba(255, 0, 255, 0.3) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, rgba(0, 255, 255, 0.3) 25%, rgba(0, 255, 255, 0.3) 26%, transparent 27%, transparent 74%, rgba(255, 0, 255, 0.3) 75%, rgba(255, 0, 255, 0.3) 76%, transparent 77%, transparent);
+            background-size: 100% 100%, 50px 50px, 50px 50px;
+            animation: bgScroll 10s linear infinite;
+        }
+
+        @keyframes bgScroll {
+            0% { background-position: 0 0, 0 0, 0 0; }
+            100% { background-position: 0 0, 0 50px, 0 0; }
+        }
+
+        .game-container {
+            background: rgba(31, 40, 51, 0.9);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2), 0 0 40px rgba(255, 0, 255, 0.2);
+            width: 90%;
+            max-width: 600px;
+            text-align: center;
+            color: #c5c6c7;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        .question {
+            font-size: 26px;
+            color: #66fcf1;
+            margin-bottom: 25px;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(102, 252, 241, 0.5);
+            min-height: 60px;
+        }
+
+        button {
+            padding: 12px 20px;
+            font-size: 15px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+
+        #startBtn {
+            background-color: #66fcf1;
+            color: #0b0c10;
+            box-shadow: 0 0 10px rgba(102, 252, 241, 0.5);
+        }
+        #startBtn:hover { transform: scale(1.05); }
+
+        #stopBtn {
+            background-color: #ff007f;
+            color: white;
+            display: none;
+            box-shadow: 0 0 10px rgba(255, 0, 127, 0.5);
+        }
+
+        /* Thêm style cho nút Skip */
+        #skipBtn {
+            background-color: #f1c40f; 
+            color: #0b0c10;
+            box-shadow: 0 0 10px rgba(241, 196, 15, 0.5);
+        }
+        #skipBtn:hover { transform: scale(1.05); }
+
+        .transcript-box {
+            width: 100%;
+            height: 150px;
+            padding: 15px;
+            margin-top: 20px;
+            border: 2px solid #45a29e;
+            border-radius: 8px;
+            font-size: 18px;
+            color: #fff;
+            background-color: rgba(11, 12, 16, 0.7);
+            resize: none;
+            box-sizing: border-box;
+        }
+
+        .status { margin-top: 15px; font-size: 14px; color: #45a29e; }
+        
+        .wave-animation {
+            display: none;
+            margin: 20px auto;
+            width: 50px;
+            height: 30px;
+            background: repeating-linear-gradient(90deg, #ff007f 0, #ff007f 4px, transparent 4px, transparent 8px);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { transform: scaleY(0.5); }
+            100% { transform: scaleY(1.5); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <div class="question" id="questionText">Loading a random question...</div>
+        
+        <div class="controls">
+            <button id="startBtn">🎤 Start Recording</button>
+            <button id="stopBtn">⏹ Stop & Submit</button>
+            <button id="skipBtn">⏭ Skip Question</button>
+        </div>
+        
+        <div class="wave-animation" id="waveIndicator"></div>
+        
+        <textarea id="transcript" class="transcript-box" placeholder="Your speech text will appear here..." readonly></textarea>
+        
+        <div class="status" id="statusText">Wait for questions to load...</div>
+    </div>
+
+    <script>
+        // NHỚ THAY URL CỦA BẠN VÀO ĐÂY NHÉ
+        const API_URL = "https://script.google.com/macros/s/AKfycbzlXSvaG1CvQwNYtotc-YIeNi4x0ymido0b-VMr6yr0LoxVWossLn3q8ijmZtSLVeAC6w/exec"; 
+        
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const skipBtn = document.getElementById('skipBtn'); // Nút đổi câu hỏi
+        const transcriptBox = document.getElementById('transcript');
+        const statusText = document.getElementById('statusText');
+        const questionText = document.getElementById('questionText');
+        const waveIndicator = document.getElementById('waveIndicator');
+
+        let questionsList = [];
+        let currentQuestion = "";
+        
+        let mediaRecorder;
+        let audioChunks = [];
+        let finalTranscript = '';
+
+        // 1. Lấy danh sách câu hỏi từ Google Sheets
+        fetch(API_URL)
+            .then(res => res.json())
+            .then(data => {
+                questionsList = data;
+                pickRandomQuestion();
+                statusText.innerText = "Ready! Click 'Start Recording' when you are ready.";
+            })
+            .catch(err => {
+                questionText.innerText = "Error loading questions.";
+                statusText.innerText = "Please check API connection.";
+            });
+
+        function pickRandomQuestion() {
+            if (questionsList.length > 0) {
+                const randomIndex = Math.floor(Math.random() * questionsList.length);
+                currentQuestion = questionsList[randomIndex];
+                questionText.innerText = currentQuestion;
+                transcriptBox.value = ''; // Xóa chữ cũ nếu có
+            }
+        }
+
+        // Sự kiện cho nút Skip
+        skipBtn.addEventListener('click', () => {
+            pickRandomQuestion();
+            statusText.innerText = "Question changed!";
+        });
+
+        // 2. Cài đặt Nhận diện giọng nói (Text)
+        window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event) => {
+            let interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    finalTranscript += event.results[i][0].transcript;
+                } else {
+                    interimTranscript += event.results[i][0].transcript;
+                }
+            }
+            transcriptBox.value = finalTranscript + interimTranscript;
+        };
+
+        // 3. Xử lý Nút Ghi âm
+        startBtn.addEventListener('click', async () => {
+            finalTranscript = '';
+            transcriptBox.value = '';
+            audioChunks = [];
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = submitData;
+                
+                mediaRecorder.start();
+                recognition.start();
+
+                // Đổi giao diện khi đang thu âm
+                startBtn.style.display = 'none';
+                skipBtn.style.display = 'none'; // Ẩn nút đổi câu hỏi
+                stopBtn.style.display = 'inline-block';
+                waveIndicator.style.display = 'block';
+                statusText.innerText = "Recording... Speak clearly.";
+            } catch (err) {
+                statusText.innerText = "Microphone access denied!";
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            recognition.stop();
+            mediaRecorder.stop();
+            
+            // Khôi phục giao diện
+            startBtn.style.display = 'inline-block';
+            skipBtn.style.display = 'inline-block'; // Hiện lại nút đổi câu hỏi
+            stopBtn.style.display = 'none';
+            waveIndicator.style.display = 'none';
+            statusText.innerText = "Processing and saving to Google Sheets...";
+        });
+
+        // Hàm chuyển Audio thành Base64 và Gửi API
+        function submitData() {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = () => {
+                const base64Audio = reader.result;
+                
+                const payload = {
+                    question: currentQuestion,
+                    transcript: transcriptBox.value,
+                    audioBase64: base64Audio
+                };
+
+                fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.status === "success") {
+                        statusText.innerText = "✅ Successfully saved text and audio!";
+                        setTimeout(() => {
+                            pickRandomQuestion(); // Tự động chuyển câu mới sau khi lưu thành công
+                            statusText.innerText = "Ready for the next question!";
+                        }, 2000);
+                    }
+                })
+                .catch(err => {
+                    statusText.innerText = "❌ Error saving data.";
+                });
+            };
+        }
+    </script>
+</body>
+</html>
