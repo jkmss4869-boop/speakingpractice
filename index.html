@@ -97,6 +97,22 @@
         }
 
         .status { margin-top: 15px; font-size: 14px; color: #45a29e; }
+
+        .requirements-box, .score-box {
+            margin-top: 16px;
+            padding: 12px 16px;
+            border: 1px solid rgba(102, 252, 241, 0.35);
+            border-radius: 8px;
+            background: rgba(11, 12, 16, 0.55);
+            text-align: left;
+        }
+        .requirements-box h2, .score-box h2 { margin: 0 0 8px; color: #66fcf1; font-size: 16px; }
+        #requirementsList { margin: 0; padding-left: 22px; }
+        #requirementsList li { margin: 4px 0; }
+        #requirementsList li.met { color: #66fcf1; }
+        #requirementsList li.missed { color: #ff8aa9; }
+        .score-box { text-align: center; color: #fff; font-size: 20px; font-weight: bold; }
+        .score-box #requirementsList { margin-top: 10px; text-align: left; font-size: 15px; font-weight: normal; }
         
         .wave-animation {
             display: none;
@@ -127,6 +143,12 @@
         <div class="wave-animation" id="waveIndicator"></div>
         
         <textarea id="transcript" class="transcript-box" placeholder="Your speech text will appear here..." readonly></textarea>
+
+        <section class="requirements-box" aria-live="polite">
+            <h2>Vocabulary requirements</h2>
+            <ul id="requirementsList"><li>Loading requirements...</li></ul>
+        </section>
+        <div class="score-box" id="scoreBox" aria-live="polite" style="display:none"></div>
         
         <div class="status" id="statusText">Wait for questions to load...</div>
     </div>
@@ -142,9 +164,13 @@
         const statusText = document.getElementById('statusText');
         const questionText = document.getElementById('questionText');
         const waveIndicator = document.getElementById('waveIndicator');
+        const requirementsList = document.getElementById('requirementsList');
+        const scoreBox = document.getElementById('scoreBox');
 
         let questionsList = [];
+        let requirements = [];
         let currentQuestion = "";
+        let latestScore = null;
         
         let mediaRecorder;
         let audioChunks = [];
@@ -154,7 +180,10 @@
         fetch(API_URL)
             .then(res => res.json())
             .then(data => {
-                questionsList = data;
+                // Accept the older questions-only response while the Apps Script deployment updates.
+                questionsList = Array.isArray(data) ? data : (data.questions || []);
+                requirements = Array.isArray(data) ? [] : (data.requirements || []);
+                renderRequirements([]);
                 pickRandomQuestion();
                 statusText.innerText = "Ready! Click 'Start Recording' when you are ready.";
             })
@@ -170,6 +199,49 @@
                 questionText.innerText = currentQuestion;
                 transcriptBox.value = ''; // Xóa chữ cũ nếu có
             }
+        }
+
+        function renderRequirements(matched) {
+            requirementsList.innerHTML = '';
+            if (!requirements.length) {
+                requirementsList.innerHTML = '<li>No vocabulary requirements found.</li>';
+                return;
+            }
+            requirements.forEach(item => {
+                const li = document.createElement('li');
+                const isMet = matched.includes(item);
+                li.textContent = `${isMet ? '✓' : '✗'} ${item}`;
+                li.classList.add(isMet ? 'met' : 'missed');
+                requirementsList.appendChild(li);
+            });
+        }
+
+        function scoreTranscript(transcript) {
+            const normalized = transcript.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+            const matched = requirements.filter(item => {
+                const phrase = item.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+                return phrase && (` ${normalized} `).includes(` ${phrase} `);
+            });
+            const score = requirements.length
+                ? Math.round((matched.length / requirements.length) * 10000) / 100
+                : 0;
+            return { score, matched };
+        }
+
+        function showResults(result) {
+            renderRequirements(result.matched);
+            scoreBox.innerHTML = '';
+            const summary = document.createElement('div');
+            summary.textContent = requirements.length
+                ? `Vocabulary score: ${result.score}/100 (${result.matched.length}/${requirements.length} requirements)`
+                : 'Vocabulary score: 0/100 (no requirements configured)';
+            scoreBox.appendChild(summary);
+
+            const resultList = requirementsList.cloneNode(true);
+            resultList.removeAttribute('id');
+            scoreBox.appendChild(resultList);
+            scoreBox.style.display = 'block';
+            document.querySelector('.requirements-box').style.display = 'none';
         }
 
         // Sự kiện cho nút Skip
@@ -202,6 +274,8 @@
             finalTranscript = '';
             transcriptBox.value = '';
             audioChunks = [];
+            latestScore = null;
+            scoreBox.style.display = 'none';
             
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -215,6 +289,7 @@
                 
                 mediaRecorder.start();
                 recognition.start();
+                document.querySelector('.requirements-box').style.display = 'none';
 
                 // Đổi giao diện khi đang thu âm
                 startBtn.style.display = 'none';
@@ -243,6 +318,8 @@
         function submitData() {
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
             const reader = new FileReader();
+            const result = scoreTranscript(transcriptBox.value);
+            latestScore = result;
             
             reader.readAsDataURL(audioBlob);
             reader.onloadend = () => {
@@ -251,6 +328,9 @@
                 const payload = {
                     question: currentQuestion,
                     transcript: transcriptBox.value,
+                    score: result.score,
+                    matchedRequirements: result.matched,
+                    totalRequirements: requirements.length,
                     audioBase64: base64Audio
                 };
 
@@ -261,6 +341,7 @@
                 .then(res => res.json())
                 .then(data => {
                     if(data.status === "success") {
+                        showResults(result);
                         statusText.innerText = "✅ Successfully saved text and audio!";
                         setTimeout(() => {
                             pickRandomQuestion(); // Tự động chuyển câu mới sau khi lưu thành công
@@ -269,6 +350,7 @@
                     }
                 })
                 .catch(err => {
+                    showResults(result);
                     statusText.innerText = "❌ Error saving data.";
                 });
             };
